@@ -17,10 +17,12 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
 
         ("C_Header/Configuração do Pool/EMPTY_DATA", True),
         ("Player Name", "Player"),
+        ("Player Property", "player_1_2_PC"),
+        ("Player Property Value", 1),
         ("Light Prefix", "MoveLamp"),
         ("Empty Prefix", "Empty"),
-        ("Billboard Prefix", "lamp_billboard"),
-        ("Billboard Max Distance (meters)", 30.0),
+        ("Halo Prefix", "lamp_halo"),
+        ("Halo Max Distance (meters)", 30.0),
         ("Enable Debug Mode", False),
         
         ("C_Header/Otimizações de Distância/TIME", True),
@@ -34,10 +36,12 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
 
     def start(self, args):
         self.player_name = args["Player Name"]
+        self.player_property = args.get("Player Property", "player_1_2_PC")
+        self.player_prop_val = args.get("Player Property Value", 1)
         self.light_prefix = args["Light Prefix"]
         self.empty_prefix = args["Empty Prefix"]
-        self.billboard_prefix = args.get("Billboard Prefix", "lamp_billboard")
-        self.billboard_max_dist = args.get("Billboard Max Distance (meters)", 30.0)
+        self.halo_prefix = args.get("Halo Prefix", "lamp_halo")
+        self.halo_max_dist = args.get("Halo Max Distance (meters)", 30.0)
         self.enable_debug = args.get("Enable Debug Mode", False)
         self.update_interval = args["Update Interval (frames)"]
         self.dist_threshold = args["Distance Threshold (meters)"]
@@ -57,7 +61,9 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
         # 3. Informações de depuração na inicialização
         if self.enable_debug:
             print("[LightManager DEBUG] --- INICIALIZADO COM DEBUG ---")
-            print("[LightManager DEBUG] Jogador Alvo: '{}'".format(self.player_name))
+            if self.player_property:
+                print("[LightManager DEBUG] Jogador Alvo (Propriedade): '{}' = {}".format(self.player_property, self.player_prop_val))
+            print("[LightManager DEBUG] Jogador Alvo (Nome): '{}'".format(self.player_name))
             matching_objs = [obj.name for obj in self.scene.objects if self.light_prefix.lower() in obj.name.lower()]
             print("[LightManager DEBUG] Objetos contendo '{}' na cena: {}".format(self.light_prefix, matching_objs))
             if not matching_objs:
@@ -117,17 +123,17 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
                 elif hasattr(obj, "color"):
                     color = list(obj.color[:3])
                 
-                # Busca o objeto billboard dentro do grupo (filho do empty)
-                billboard = None
-                if self.billboard_prefix:
-                    billboard = next((c for c in obj.childrenRecursive if self.billboard_prefix.lower() in c.name.lower()), None)
-                    if billboard and not billboard.invalid:
-                        billboard.visible = False
+                # Busca o objeto halo dentro do grupo (filho do empty)
+                halo = None
+                if self.halo_prefix:
+                    halo = next((c for c in obj.childrenRecursive if self.halo_prefix.lower() in c.name.lower()), None)
+                    if halo and not halo.invalid:
+                        halo.visible = False
                 
                 self.empties.append({
                     "obj": obj,
                     "color": color,
-                    "billboard": billboard
+                    "halo": halo
                 })
 
         print("[LightManager] Pool de Luzes Dinamicas: {} luzes e {} postes configurados.".format(
@@ -191,12 +197,23 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
         except Exception:
             pass
 
+    def get_player(self):
+        if self.player_property:
+            for obj in self.scene.objects:
+                if not obj.invalid and self.player_property in obj:
+                    try:
+                        if obj[self.player_property] == self.player_prop_val:
+                            return obj
+                    except Exception:
+                        pass
+        return self.scene.objects.get(self.player_name)
+
     def update(self):
         # 1. Processa a transição suave de fade todo frame (essencial para evitar flickering/pops)
         self.process_fading()
 
         # Encontra o jogador ativo na cena
-        player = self.scene.objects.get(self.player_name)
+        player = self.get_player()
         
         # Se o debug estiver ativo, desenha as linhas de sensor em todo frame
         if self.enable_debug:
@@ -211,7 +228,10 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
 
         if not player or player.invalid:
             if self.enable_debug:
-                print("[LightManager DEBUG] Erro: Jogador '{}' nao encontrado na cena ou e invalido!".format(self.player_name))
+                if self.player_property:
+                    print("[LightManager DEBUG] Erro: Jogador com propriedade '{}' = {} nao encontrado na cena ou e invalido!".format(self.player_property, self.player_prop_val))
+                else:
+                    print("[LightManager DEBUG] Erro: Jogador '{}' nao encontrado na cena ou e invalido!".format(self.player_name))
             return
 
         player_pos = player.worldPosition
@@ -229,13 +249,13 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
             print("[LightManager DEBUG] Atualizando luzes mais proximas em: {}".format(player_pos))
         self.update_closest_lights(player_pos)
 
-        # 4. Atualiza a visibilidade dos billboards (lamp_billboard) com base na distância de 30m
-        if self.billboard_prefix:
+        # 4. Atualiza a visibilidade dos halos (lamp_halo) com base na distância de 30m
+        if self.halo_prefix:
             for empty in self.empties:
-                bb = empty.get("billboard")
-                if bb and not bb.invalid:
+                halo_obj = empty.get("halo")
+                if halo_obj and not halo_obj.invalid:
                     dist = (empty["obj"].worldPosition - player_pos).length
-                    bb.visible = (dist <= self.billboard_max_dist)
+                    halo_obj.visible = (dist <= self.halo_max_dist)
 
     def draw_debug_lines(self, player):
         if not player or player.invalid:
