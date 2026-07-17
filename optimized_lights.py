@@ -19,6 +19,8 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
         ("Player Name", "Player"),
         ("Light Prefix", "MoveLamp"),
         ("Empty Prefix", "Empty"),
+        ("Billboard Prefix", "lamp_billboard"),
+        ("Billboard Max Distance (meters)", 30.0),
         ("Enable Debug Mode", False),
         
         ("C_Header/Otimizações de Distância/TIME", True),
@@ -34,6 +36,8 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
         self.player_name = args["Player Name"]
         self.light_prefix = args["Light Prefix"]
         self.empty_prefix = args["Empty Prefix"]
+        self.billboard_prefix = args.get("Billboard Prefix", "lamp_billboard")
+        self.billboard_max_dist = args.get("Billboard Max Distance (meters)", 30.0)
         self.enable_debug = args.get("Enable Debug Mode", False)
         self.update_interval = args["Update Interval (frames)"]
         self.dist_threshold = args["Distance Threshold (meters)"]
@@ -113,9 +117,17 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
                 elif hasattr(obj, "color"):
                     color = list(obj.color[:3])
                 
+                # Busca o objeto billboard dentro do grupo (filho do empty)
+                billboard = None
+                if self.billboard_prefix:
+                    billboard = next((c for c in obj.childrenRecursive if self.billboard_prefix.lower() in c.name.lower()), None)
+                    if billboard and not billboard.invalid:
+                        billboard.visible = False
+                
                 self.empties.append({
                     "obj": obj,
-                    "color": color
+                    "color": color,
+                    "billboard": billboard
                 })
 
         print("[LightManager] Pool de Luzes Dinamicas: {} luzes e {} postes configurados.".format(
@@ -216,6 +228,14 @@ class OptimizedLightManager(bge.types.KX_PythonComponent):
         if self.enable_debug:
             print("[LightManager DEBUG] Atualizando luzes mais proximas em: {}".format(player_pos))
         self.update_closest_lights(player_pos)
+
+        # 4. Atualiza a visibilidade dos billboards (lamp_billboard) com base na distância de 30m
+        if self.billboard_prefix:
+            for empty in self.empties:
+                bb = empty.get("billboard")
+                if bb and not bb.invalid:
+                    dist = (empty["obj"].worldPosition - player_pos).length
+                    bb.visible = (dist <= self.billboard_max_dist)
 
     def draw_debug_lines(self, player):
         if not player or player.invalid:
